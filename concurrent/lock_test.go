@@ -21,21 +21,35 @@ func TestNewCondLock(t *testing.T) {
 			select {
 			case <-t:
 				fmt.Printf("Notifying...\n")
-				cond.Notify()
+				func() {
+					cond.Lock()
+					defer cond.Unlock()
+					cond.Notify()
+				}()
+
 			case <-t1:
 				fmt.Printf("Notifying all...\n")
-				cond.NotifyAll()
+				func() {
+					cond.Lock()
+					defer cond.Unlock()
+					cond.NotifyAll()
+				}()
 			}
 		}
 	}()
 
 	for i := 0; i < 5; i++ {
 		fmt.Printf("Waiting again %d ...\n", i)
-		go cond.Wait()
+		go func() {
+			cond.Lock()
+			defer cond.Unlock()
+			cond.Wait()
+		}()
 	}
 	cond.Wait()
 	fmt.Printf("Done ... %+v\n", time.Since(start)/time.Second)
 	fmt.Printf("Waiting again ...\n")
 	cond.TimedWait(time.Second * 5)
 	fmt.Printf("Done ... %+v\n", time.Since(start)/time.Second)
+	cond.Unlock()
 }

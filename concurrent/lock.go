@@ -7,8 +7,8 @@ import (
 
 // CondLock ...
 type CondLock struct {
+	waitCount int
 	l          *sync.Mutex
-	il         *sync.Mutex // Internal lock
 	ch         chan struct{}
 	isChanOpen bool
 }
@@ -17,7 +17,6 @@ type CondLock struct {
 func NewCondLock() *CondLock {
 	return &CondLock{
 		l:  &sync.Mutex{},
-		il: &sync.Mutex{},
 	}
 }
 
@@ -37,9 +36,10 @@ func (lock *CondLock) Wait() {
 		lock.ch = make(chan struct{})
 		lock.isChanOpen = true
 	}
-	// This is required because lock.l.Unlock can be called when it is already being locked
-	lock.il.Lock()
-	defer lock.il.Unlock()
+	lock.waitCount++
+	defer func() {
+		lock.waitCount--
+	}()
 	// Release the lock
 	lock.l.Unlock()
 	<-lock.ch
@@ -53,8 +53,10 @@ func (lock *CondLock) TimedWait(d time.Duration) {
 		lock.ch = make(chan struct{})
 		lock.isChanOpen = true
 	}
-	lock.il.Lock()
-	defer lock.il.Unlock()
+	lock.waitCount++
+	defer func() {
+		lock.waitCount--
+	}()
 	lock.l.Unlock()
 	select {
 	case <-time.After(d):
@@ -66,7 +68,8 @@ func (lock *CondLock) TimedWait(d time.Duration) {
 
 // Notify ...already locked
 func (lock *CondLock) Notify() {
-	if lock.isChanOpen {
+	if lock.isChanOpen && lock.waitCount > 0 {
+		// Notify should not get stuck if there is no one waiting
 		lock.ch <- struct{}{}
 	}
 }
@@ -78,5 +81,6 @@ func (lock *CondLock) NotifyAll() {
 		// on the channel to return
 		close(lock.ch)
 		lock.isChanOpen = false
+		lock.waitCount = 0
 	}
 }
